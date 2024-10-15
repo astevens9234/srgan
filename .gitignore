@@ -1,6 +1,10 @@
 *.jpg
 *.jpeg
 *.png
+*.zip
+*.tar
 __pycache__
 env
 .env
+data
+/data
