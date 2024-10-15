@@ -6,6 +6,7 @@ from torch import nn
 
 
 class SRGAN(nn.Module):
+    """Super Resolution Generative Adversarial Network."""
     def __init__(self):
         super().__init__()
         raise NotImplementedError
