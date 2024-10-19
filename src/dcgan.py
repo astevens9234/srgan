@@ -1,14 +1,23 @@
-"""Implimentation of Deep Convolutional Generative Adversarial Network."""
+"""Implimentation of Deep Convolutional Generative Adversarial Network.
+c.f. https://arxiv.org/abs/1511.06434
+"""
+
+import datetime as dt
+import os
 
 import torch
 import torchvision
 
 from torch import nn
 
-from gan_util import Accumulator, update_D, update_G
+from .gan_util import Accumulator, update_D, update_G, extract_zip
+
+# TODO: Logging/Warnings/cProfile/etc
 
 
 class DCGAN(nn.Module):
+    """Base Class Deep Convolutional Generative Adversarial Network"""
+
     def __init__(self, resize=(64, 64), batch_size=64, data_dir="../data"):
         super(DCGAN, self).__init()
         self.transform = torchvision.transforms.Compose(
@@ -78,8 +87,9 @@ net_G = nn.Sequential(
 )
 
 # Verify 100 dimensional input results in 64x64 output...
-x = torch.zeros((1, 100, 1, 1))
-print(net_G(x).shape)
+if False:
+    x = torch.zeros((1, 100, 1, 1))
+    print(net_G(x).shape)
 
 
 # Opposite the generator, with convolution output=1 to make single prediction.
@@ -93,10 +103,12 @@ net_D = nn.Sequential(
 )
 
 # Verify that the 64x64 input results in a single value
-x = torch.zeros((1, 3, 64, 64))
-print(net_D(x).shape)
+if False:
+    x = torch.zeros((1, 3, 64, 64))
+    print(net_D(x).shape)
 
 
+# TODO: Move this into the utils
 def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_dim=100):
     loss = nn.BCEWithLogitsLoss(reduction="sum")
 
@@ -108,10 +120,10 @@ def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_di
     net_D, net_G = net_D.to(device), net_G.to(device)
     grid = {"lr": lr, "betas": [0.5, 0.999]}
 
-    trainer_D = torch.optim.Adam(net_D.parameters, **grid)
-    trainer_G = torch.optim.Adam(net_G.parameters, **grid)
+    trainer_D = torch.optim.Adam(net_D.parameters(), **grid)
+    trainer_G = torch.optim.Adam(net_G.parameters(), **grid)
 
-    for epoch in range(0, num_epochs):
+    for _ in range(0, num_epochs):
         metric = Accumulator(3)
         for X, _ in data_iter:
             batch_size = X.shape[0]
@@ -130,12 +142,32 @@ def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_di
             loss_D, loss_G = metric[0] / metric[2], metric[1] / metric[2]
             print("loss_D: {}, loss_G {}".format(loss_D, loss_G))
 
+    time = dt.datetime.now().strftime("%d-%m-%Y-%H-%M")
+    torch.save(net_G.state_dict(), "./models/dcgan-netg-{}.params".format(time))
+    torch.save(net_D.state_dict(), "./models/dcgan-netd-{}.params".format(time))
+
 
 if torch.cuda.is_available():
-        device = torch.device("cuda")
+    device = torch.device("cuda")
 else:
     device = torch.device("cpu")
 
-# TODO: Abstractions to sensical classes
-#       Build out the data_iter
-training(net_D, net_G, device, )
+
+def main(batch_size=256, url="http://d2l-data.s3-accelerate.amazonaws.com/pokemon.zip"):
+    """Training DCGAN."""
+    extract_zip(url=url, folder="../data")
+    data = torchvision.datasets.ImageFolder("../data")
+    # NOTE: Abstract out Compose params to accomodate different input resolutions?
+    data.transform = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.Resize((64, 64)),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(0.5, 0.5),
+        ]
+    )
+    data_iter = torch.utils.data.DataLoader(data, batch_size, shuffle=True)
+
+    training(net_D, net_G, device, data_iter)
+
+
+main()

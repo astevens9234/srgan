@@ -1,59 +1,45 @@
-"""I am the script, you are the user.
-"""
+"""Image Upscaling Research, developed in Pytorch."""
 
 import os
 import zipfile
 
 import requests
 import torch
+import torchvision
 
-from src.srgan import SRGAN
-
-
-def _download_zip(url, folder='./data') -> str:
-    print('Downloading...')
-
-    os.makedirs(folder, exist_ok=True)
-    filename = os.path.join(folder, url.split('/')[-1])
-    r = requests.get(url, stream=True, verify=True)
-    print(f"Status code {r.status_code}")
-
-    with open(filename, 'wb') as f:
-        f.write(r.content)
-
-    return filename
-
-def extract_zip(url, folder=None):
-    filename = _download_zip(url=url, folder=folder)
-    print('Extracting...')
-
-    base_dir = os.path.dirname(filename)
-    _, ext = os.path.splitext(filename)
-
-    assert ext in ('.zip'), 'Only support .zip file at this time'
-
-    filepath = zipfile.ZipFile(filename, 'r')
-    if folder is None:
-        folder = base_dir
-
-    filepath.extractall(folder)
+from src.dcgan import G_block
 
 
-def training():
+def upscale(device, img="nature.Jpeg", model="./models/dcgan-netg.params"):
+    """This function will read an image and save it in super resolution..."""
+    # TODO:
+    #       call generator/other F(x)s for SR
+    #       upscale
+    #       save file...
+    X = torchvision.io.read_image(img).type(torch.FloatTensor).to(device)
+
+    # NOTE: Doesn't exactly make sense to make predictions off of the DCGAN model
+    #       because it is trained on toy data.
+    # upscaler = G_block(out_channels=3).to(device)
+    # upscaler.load_state_dict(torch.load(model, weights_only=True), strict=False)
+    # print(f"X type {type(X)}")
+    # Y = upscaler(X)
+    # res = torchvision.transforms.ToPILImage()(Y)
+    # res.show()
+
     raise NotImplementedError
 
-def testing():
-    raise NotImplementedError
 
 def main():
-    """"""
+    """Image Upscaler based on DCGAN/SRGAN/ETC"""
+
     if torch.cuda.is_available():
         device = torch.device("cuda")
     else:
         device = torch.device("cpu")
 
-    # Some stock data...
-    extract_zip(url='http://d2l-data.s3-accelerate.amazonaws.com/pokemon.zip', folder='./data')
+    upscale(device=device)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

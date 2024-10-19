@@ -3,8 +3,11 @@
 *.png
 *.zip
 *.tar
+*.params
 __pycache__
 env
 .env
 data
 /data
+models
+/models

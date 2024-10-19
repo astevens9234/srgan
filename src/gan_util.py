@@ -1,6 +1,11 @@
 """Common classes/functions/etc for our GANs."""
 
+import os
+import zipfile
+
+import requests
 import torch
+
 from torch import nn
 
 class Accumulator:
@@ -16,6 +21,7 @@ class Accumulator:
 
     def __getitem__(self, idx):
         return self.data[idx]
+    
     
 def update_D(X, Z, net_D, net_G, loss, trainer_D):
     """Update the Disciminator."""
@@ -76,3 +82,32 @@ def training(net_D, net_G, lr_D, lr_G, epochs, data_iter, latent_dim):
             )
         loss_D, loss_G = metric[0] / metric[2], metric[1] / metric[2]
         print("loss_D: {}, loss_G {}".format(loss_D, loss_G))
+
+
+def _download_zip(url, folder='./data') -> str:
+    print('Downloading...')
+
+    os.makedirs(folder, exist_ok=True)
+    filename = os.path.join(folder, url.split('/')[-1])
+    r = requests.get(url, stream=True, verify=True)
+    print(f"Status code {r.status_code}")
+
+    with open(filename, 'wb') as f:
+        f.write(r.content)
+
+    return filename
+
+def extract_zip(url, folder=None):
+    filename = _download_zip(url=url, folder=folder)
+    print('Extracting...')
+
+    base_dir = os.path.dirname(filename)
+    _, ext = os.path.splitext(filename)
+
+    assert ext in ('.zip'), 'Only support .zip file at this time'
+
+    filepath = zipfile.ZipFile(filename, 'r')
+    if folder is None:
+        folder = base_dir
+
+    filepath.extractall(folder)
