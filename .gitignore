@@ -5,12 +5,9 @@
 *.tar
 *.params
 *.log
-*.logs
 *.txt
 __pycache__
 env
 .env
 data
 /data
-models
-/models

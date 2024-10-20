@@ -1,4 +1,4 @@
-Image upscaler using SDGAN 
+Image upscaler using SRGAN 
 - https://arxiv.org/pdf/1609.04802
 
 TODO:
