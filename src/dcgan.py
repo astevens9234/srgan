@@ -1,33 +1,41 @@
 """Implimentation of Deep Convolutional Generative Adversarial Network.
-c.f. https://arxiv.org/abs/1511.06434
+c.f. <https://arxiv.org/abs/1511.06434>
+
+Gentle reminder: py -m cProfile -s tottime ./src./dcgan.py > ./logs/dcgan-cpro.txt
+for performance evaluation.
 """
 
 import datetime as dt
-import os
+import logging
+import warnings
 
 import torch
 import torchvision
 
 from torch import nn
 
-from .gan_util import Accumulator, update_D, update_G, extract_zip
+from gan_util import Accumulator, update_D, update_G, extract_zip
 
-# TODO: Logging/Warnings/cProfile/etc
+warnings.simplefilter(action="ignore")
+logging.basicConfig(filename="./logs/dcgan.log", encoding="utf-8", level=logging.INFO)
 
 
 class DCGAN(nn.Module):
     """Base Class Deep Convolutional Generative Adversarial Network"""
 
-    def __init__(self, resize=(64, 64), batch_size=64, data_dir="../data"):
-        super(DCGAN, self).__init()
-        self.transform = torchvision.transforms.Compose(
-            torchvision.transforms.Resize(resize),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(0.5, 0.5),
+    def __init__(self, resize=(64, 64), batch_size=256, data_dir="../data", url=""):
+        super(DCGAN, self).__init__()
+        extract_zip(url=url, folder=data_dir)
+        self.data = torchvision.datasets.ImageFolder(data_dir)
+        self.data.transform = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.Resize(resize),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize(0.5, 0.5),
+            ]
         )
-        self.data_dir = torchvision.datasets.DatasetFolder(data_dir)
         self.data_iter = torch.utils.data.DataLoader(
-            self.data_dir, batch_size=batch_size, shuffle=True
+            self.data, batch_size=batch_size, shuffle=True
         )
 
 
@@ -59,7 +67,7 @@ class D_block(nn.Module):
         stride=2,
         padding=1,
         alpha=0.2,
-        **kwargs
+        **kwargs,
     ):
         super(D_block, self).__init__(**kwargs)
         self.conv2d = nn.Conv2d(
@@ -72,6 +80,7 @@ class D_block(nn.Module):
         return self.activation(self.batch_norm(self.conv2d(X)))
 
 
+# TODO: Move the nets into class
 # projects z (noise) into n_G*8 channels, then halves the channel each time
 # convolution layer generates output, doubling size
 n_G = 64
@@ -109,7 +118,7 @@ if False:
 
 
 # TODO: Move this into the utils
-def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_dim=100):
+def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=1, latent_dim=100):
     loss = nn.BCEWithLogitsLoss(reduction="sum")
 
     for w in net_D.parameters():
@@ -123,6 +132,7 @@ def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_di
     trainer_D = torch.optim.Adam(net_D.parameters(), **grid)
     trainer_G = torch.optim.Adam(net_G.parameters(), **grid)
 
+    print("Training...")
     for _ in range(0, num_epochs):
         metric = Accumulator(3)
         for X, _ in data_iter:
@@ -140,34 +150,32 @@ def training(net_D, net_G, device, data_iter, lr=0.005, num_epochs=10, latent_di
                 batch_size,
             )
             loss_D, loss_G = metric[0] / metric[2], metric[1] / metric[2]
-            print("loss_D: {}, loss_G {}".format(loss_D, loss_G))
+            logging.info("loss_D: {}, loss_G {}".format(loss_D, loss_G))
 
     time = dt.datetime.now().strftime("%d-%m-%Y-%H-%M")
     torch.save(net_G.state_dict(), "./models/dcgan-netg-{}.params".format(time))
     torch.save(net_D.state_dict(), "./models/dcgan-netd-{}.params".format(time))
 
 
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
+def main(url="http://d2l-data.s3-accelerate.amazonaws.com/pokemon.zip"):
+    """Training DCGAN. Default url points to Pokemon sprites.
+
+    url: A link to a .zip file containing .jpg for training.
+    """
+
+    logging.info("#" * 45)
+    logging.info(f"Training: {dt.datetime.now().strftime("%d-%m-%Y-%H-%M")}")
+    logging.info("#" * 45)
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+    net = DCGAN(url=url)
+
+    training(net_D, net_G, device, net.data_iter)
 
 
-def main(batch_size=256, url="http://d2l-data.s3-accelerate.amazonaws.com/pokemon.zip"):
-    """Training DCGAN."""
-    extract_zip(url=url, folder="../data")
-    data = torchvision.datasets.ImageFolder("../data")
-    # NOTE: Abstract out Compose params to accomodate different input resolutions?
-    data.transform = torchvision.transforms.Compose(
-        [
-            torchvision.transforms.Resize((64, 64)),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize(0.5, 0.5),
-        ]
-    )
-    data_iter = torch.utils.data.DataLoader(data, batch_size, shuffle=True)
-
-    training(net_D, net_G, device, data_iter)
-
-
-main()
+if __name__ == "__main__":
+    main()

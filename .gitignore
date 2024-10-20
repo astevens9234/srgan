@@ -4,6 +4,9 @@
 *.zip
 *.tar
 *.params
+*.log
+*.logs
+*.txt
 __pycache__
 env
 .env

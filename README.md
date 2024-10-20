@@ -7,3 +7,7 @@ TODO:
 - Scaffold FastAPI
 - Containerize
 - Deploy on cluster
+
+Future Considerations:
+- Super-Resolving Images : https://arxiv.org/abs/2410.12961
+- Hybrid Attention Separable Network for Super Resolution: https://arxiv.org/abs/2410.09844
