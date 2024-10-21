@@ -42,17 +42,37 @@ class G_Network(nn.module):
 
         self.conv2d_tran
 
+    def residual_block(self, ): ...
 
 class D_Network(nn.Module):
 
     def __init__(self):
-        """Discriminator Network"""
+        """Discriminator Network. Eight convolutional layers followed by two dense layers."""
         super(D_Network, self).__init__()
         self.conv2d_tran = nn.ConvTranspose2d()
         self.leaky_relu = nn.LeakyReLU()
+        self.d_block = nn.Sequential(
+            self.discriminator_block(kernel_size=3, in_channels=64, out_channels=128, stride=1),
+            self.discriminator_block(kernel_size=3, in_channels=128, out_channels=256, stride=2),
+            self.discriminator_block(kernel_size=3, in_channels=256, out_channels=256, stride=1),
+            self.discriminator_block(kernel_size=3, in_channels=256, out_channels=512, stride=2),
+            self.discriminator_block(kernel_size=3, in_channels=512, out_channels=512, stride=1),
+            self.discriminator_block(kernel_size=3, in_channels=512, out_channels=1024, stride=2)
+        )
+        self.dense = nn.Sequential(
+            nn.LazyLinear(out_features=1024, bias=True),
+            nn.LeakyReLU(),
+            nn.LazyLinear(out_features=1, bias=True),
+            nn.Sigmoid()
+        )
 
-    def d_block(): ...
-
+    def discriminator_block(self, in_channels=64, out_channels=64, kernel_size=3, stride=1):
+        return nn.Sequential(
+            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.LeakyReLU()
+        )
+        
 
 class Residual_Block(nn.Module):
 
