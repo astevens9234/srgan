@@ -1,4 +1,4 @@
-"""Implimenation of a simple GAN. Educational - to inform the larger problem.
+"""Implimenation of a simple GAN. Educational.
 
 Summary:
 - Generative Adversarial Networks are composed of two neural networks;

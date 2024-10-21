@@ -1,4 +1,7 @@
-"""Image Upscaling Research, developed in Pytorch."""
+"""Image Upscaling Research, developed in Pytorch.
+
+Right now, this file is debt from earlier builds - moving everything out eventually.
+"""
 
 import os
 import zipfile
