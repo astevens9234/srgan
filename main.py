@@ -10,7 +10,9 @@ import requests
 import torch
 import torchvision
 
-from src.dcgan import G_block
+# from src.dcgan import G_block
+
+from src.srgan import ContentLoss
 
 
 def upscale(device, img="nature.Jpeg", model="./models/dcgan-netg.params"):
@@ -19,7 +21,7 @@ def upscale(device, img="nature.Jpeg", model="./models/dcgan-netg.params"):
     #       call generator/other F(x)s for SR
     #       upscale
     #       save file...
-    X = torchvision.io.read_image(img).type(torch.FloatTensor).to(device)
+    # X = torchvision.io.read_image(img).type(torch.FloatTensor).to(device)
 
     # NOTE: Doesn't exactly make sense to make predictions off of the DCGAN model
     #       because it is trained on toy data.
@@ -45,4 +47,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    input_img = torch.randn(1, 3, 224, 224).to('cuda')
+    target_img = torch.randn(1, 3, 224, 224).to('cuda')
+    
+    # Initialize VGG Content Loss (using conv4_2, index 20)
+    content_loss = ContentLoss(layer_index=20, device='cuda')
+    
+    # Compute loss
+    loss = content_loss(input_img, target_img)
+    print(f"Content Loss: {loss.item()}")
