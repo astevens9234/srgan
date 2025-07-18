@@ -51,24 +51,26 @@ class G_Network(nn.Module):
         super(G_Network, self).__init__()
 
         self.net = nn.Sequential(
-            nn.ConvTranspose2d(
-                in_channels=0,
-                out_channels=0,
-                kernel_size=0
+            nn.LazyConvTranspose2d(
+                out_channels=64,
+                kernel_size=9,
+                stride=1
             ), 
             nn.PReLU()
             )
 
         self.skip_connection = nn.Identity()
 
+        # NOTE: Interestingly, the paper prescribes all B res blocks the same parameters.
+        #       Opportunity to abstract that out and play around with params.
         self.net.add_module(
             name="Residual Blocks",
             module=nn.Sequential(
-                ResidualBlock(),
-                ResidualBlock(),
-                ResidualBlock(),
-                ResidualBlock(),
-                ResidualBlock(),
+                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
+                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
+                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
+                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
+                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
             ),
         )
 
@@ -81,7 +83,7 @@ class G_Network(nn.Module):
             module=nn.Sequential(
                 PixelShuffleBlock(),
                 PixelShuffleBlock(),
-                nn.Conv2d(kernel_size=9,out_channels=3,stride=1)
+                nn.LazyConv2d(kernel_size=9, out_channels=3, stride=1)
             )
         )
 
@@ -92,13 +94,13 @@ class G_Network(nn.Module):
 class ResidualBlock(nn.Module):
     """Wrapper for residual blocks, required to wrap nn.Sequential in nn.Module to perform elementwise sums."""
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride):
+    def __init__(self, out_channels, kernel_size, stride):
         super(ResidualBlock, self).__init__()
         self.sequential = nn.Sequential(
-            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+            nn.LazyConv2d(out_channels=out_channels, kernel_size=kernel_size, stride=stride),
             nn.BatchNorm2d(num_features=out_channels),
             nn.PReLU(),
-            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+            nn.LazyConv2d(out_channels=out_channels, kernel_size=kernel_size, stride=stride),
             nn.BatchNorm2d(num_features=out_channels),
         )
 
@@ -114,8 +116,8 @@ class ElementSumBlock(nn.Module):
         super(ElementSumBlock, self).__init__()
         self.skip_connection = skip_connection
         self.sequential = nn.Sequential(
-            nn.Conv2d(),
-            nn.BatchNorm2d()
+            nn.LazyConv2d(kernel_size=3, out_channels=64, stride=1),
+            nn.BatchNorm2d(num_features=64)
         )
 
     def forward(self, X):
@@ -129,9 +131,9 @@ class PixelShuffleBlock(nn.Module):
     def __init__(self):
         super(PixelShuffleBlock, self).__init__()
         self.sequential = nn.Sequential(
-            nn.Conv2d(),
-            nn.PixelShuffle(),
-            nn.PixelShuffle(),
+            nn.LazyConv2d(kernel_size=3, out_channels=256, stride=1),
+            nn.PixelShuffle(upscale_factor=3),
+            nn.PixelShuffle(upscale_factor=3),
             nn.PReLU()
         )
 
@@ -139,49 +141,56 @@ class PixelShuffleBlock(nn.Module):
         return self.sequential(X) 
         
 
-
 class D_Network(nn.Module):
 
     def __init__(self):
         """Discriminator Network. Eight convolutional layers followed by two dense layers."""
         super(D_Network, self).__init__()
-        self.conv2d_tran = nn.LazyConvTranspose2d()
-        self.leaky_relu = nn.LeakyReLU()
-        self.d_block = nn.Sequential(
-            self.discriminator_block(
+
+        self.net = nn.Sequential(
+            nn.LazyConv2d(kernel_size=3, out_channels=64, stride=1),
+            nn.LeakyReLU(negative_slope=0.02),
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=64, out_channels=128, stride=1
             ),
-            self.discriminator_block(
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=128, out_channels=256, stride=2
             ),
-            self.discriminator_block(
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=256, out_channels=256, stride=1
             ),
-            self.discriminator_block(
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=256, out_channels=512, stride=2
             ),
-            self.discriminator_block(
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=512, out_channels=512, stride=1
             ),
-            self.discriminator_block(
+            DiscriminatorBlock(
                 kernel_size=3, in_channels=512, out_channels=1024, stride=2
             ),
-        )
-        self.dense = nn.Sequential(
             nn.LazyLinear(out_features=1024, bias=True),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(negative_slope=0.02),
             nn.LazyLinear(out_features=1, bias=True),
-            nn.Sigmoid(),
+            nn.Sigmoid()            
         )
 
-    def discriminator_block(
-        self, in_channels=64, out_channels=64, kernel_size=3, stride=1
-    ):
-        return nn.Sequential(
-            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+    
+    def forward(self, X):
+        return self.net(X)
+
+
+class DiscriminatorBlock(nn.Module): 
+    """Wrapper for discriminator blocks."""
+    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1):
+        super(DiscriminatorBlock, self).__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(kernel_size=kernel_size, in_channels=in_channels, out_channels=out_channels, stride=stride),
             nn.BatchNorm2d(num_features=out_channels),
-            nn.LeakyReLU(),
+            nn.LeakyReLU(negative_slope=0.02),
         )
+
+    def forward(self, X):
+        return self.net(X)
 
 
 class ContentLoss(nn.Module):
