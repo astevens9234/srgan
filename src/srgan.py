@@ -7,21 +7,40 @@ Training data can be found here: <https://storage.googleapis.com/openimages/web/
 import torch
 
 from torch import nn
-from torchvision import models, transforms
+from torchvision import models, transforms, datasets
+
+from gan_util import extract_zip
 
 
 class SRGAN(nn.Module):
 
-    def __init__(self):
+    def __init__(self, resize=(64, 64), batch_size=256, data_dir="../data", url=""):
         """Super Resolution Generative Adversarial Network.
 
         Args:
+            resize:
+            batch_size:
+            data_dir:
+            url:
         """
         super(SRGAN, self).__init__()
-        raise NotImplementedError
 
-    def forward(self):
-        raise NotImplementedError
+        extract_zip(url, folder=data_dir)
+        self.data = datasets.ImageFolder(data_dir)
+        self.data.transform = transforms.Compose(
+            [
+                transforms.Resize(resize),
+                transforms.ToTensor(),
+                transforms.Normalize(0.5, 0.5),
+            ]
+        )
+        self.data_iter = torch.utils.data.DataLoader(
+            self.data, batch_size=batch_size, shuffle=True
+        )
+
+        self.generator = G_Network()
+        self.discriminator = D_Network()
+
 
 
 class G_Network(nn.Module):
@@ -35,6 +54,7 @@ class G_Network(nn.Module):
         #       Will leave as a leaky for now while scaffolding - FIXME.
         #       UPDATE a leaky relu w/ learnable slope is a parametric relu :)
         self.leaky_relu = nn.LeakyReLU()
+        self.skip_connection = self.leaky_relu
 
         self.r_block = (
             nn.Sequential(
@@ -48,9 +68,19 @@ class G_Network(nn.Module):
 
         self.conv2d_tran
 
-    def residual_block(
-        self,
-    ): ...
+    # TODO:
+    def residual_block(self, in_channels, out_channels, kernel_size, stride):
+        skipx = ...  # FIXME:
+        nn.Sequential(
+            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.LeakyReLU(),
+            nn.Conv2d(kernel_size, in_channels, out_channels, stride),
+            nn.BatchNorm2d(num_features=out_channels),
+        )
+        elementwise_sum = ...  # FIXME
+
+        return ...
 
 
 class D_Network(nn.Module):
@@ -58,7 +88,7 @@ class D_Network(nn.Module):
     def __init__(self):
         """Discriminator Network. Eight convolutional layers followed by two dense layers."""
         super(D_Network, self).__init__()
-        self.conv2d_tran = nn.ConvTranspose2d()
+        self.conv2d_tran = nn.LazyConvTranspose2d()
         self.leaky_relu = nn.LeakyReLU()
         self.d_block = nn.Sequential(
             self.discriminator_block(
@@ -98,10 +128,11 @@ class D_Network(nn.Module):
 
 
 class ContentLoss(nn.Module):
-    """MSE Between feature maps"""
 
     def __init__(self, layer_index=20, device="cuda"):
-        """19 Layer VGG loss purposed at: <https://arxiv.org/pdf/1409.1556>."""
+        """19 Layer VGG loss purposed at: <https://arxiv.org/pdf/1409.1556>.
+        Takes MSE Between Feature Maps.
+        """
         super(ContentLoss, self).__init__()
 
         device = torch.device(device)
@@ -115,6 +146,7 @@ class ContentLoss(nn.Module):
 
         # NOTE: mean/std are stock values
         # TODO: calc these values from the training set
+        # NOTE: shouldn't normalization happen at input stage?
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         ).to(device)
@@ -132,7 +164,7 @@ class ContentLoss(nn.Module):
         input_img = self.normalize(input_img)
         target_img = self.normalize(target_img)
 
-        for i, layer in enumerate(self.vgg): # type: ignore
+        for i, layer in enumerate(self.vgg):  # type: ignore
             input_img = layer(input_img)
             target_img = layer(target_img)
 
@@ -142,9 +174,66 @@ class ContentLoss(nn.Module):
 
 class AdversarialLoss(nn.Module):
 
-    def __init__(self):
-        """"""
+    def __init__(self, G, D, I_HR, I_LR):
+        """
+        Args:
+            D: Discriminator Network
+            G: Generator Network
+            I_HR: Batch of real high-resolution images (tensors)
+            I_LR: Batch of low-resolution images (tensors)
+        Returns:
+            loss (torch.Tensor)
+        """
         super(AdversarialLoss, self).__init__()
+        self.loss_d = self.compute_D_loss(G, D, I_HR, I_LR)
+
+    def compute_D_loss(self, D, G, I_HR, I_LR):
+        """
+        Compute adversarial loss for the discriminator.
+        Real image targes == 1, fake images == 0.
+
+        Args:
+            D: Discriminator Network
+            G: Generator Network
+            I_HR: Batch of real high-resolution images (tensors)
+            I_LR: Batch of low-resolution images (tensors)
+
+        Returns:
+            loss_D: Adversarial Loss
+        """
+
+        D_real = D(I_HR)
+        real_labels = torch.ones_like(D_real)
+        loss_D_real = nn.BCELoss()(D_real, real_labels)
+
+        G_I_LR = G(I_LR)
+        D_fake = D(G_I_LR.detach())  # Detach to prevent backpropigation through G
+        fake_labels = torch.zeros_like(D_fake)
+        loss_D_fake = nn.BCELoss()(D_fake, fake_labels)
+
+        loss_D = loss_D_real + loss_D_fake
+
+        return loss_D
+
+    def compute_G_loss(self, D, G, I_LR):
+        """
+        Compute adversarial loss for Generator.
+        Real image targets == 1, fake images == 0.
+
+        Args:
+            D: Discriminator Network
+            G: Generator Network
+            I_LR: Batch of low-resolution images (tensors)
+
+        Returns:
+            loss_G: Generator's adversarial loss
+        """
+        G_I_LR = G(I_LR)
+        D_fake = D(G_I_LR)
+        real_labels = torch.ones_like(D_fake)
+        loss_G = nn.BCELoss()(D_fake, real_labels)
+
+        return loss_G
 
     def forward(self):
         raise NotImplementedError
@@ -156,7 +245,7 @@ class PerceptualLoss(nn.Module):
         """Weighted sum of Content Loss & Adversarial Loss."""
         super(PerceptualLoss, self).__init__()
         self.content_loss = ContentLoss()
-        self.adversarial_loss = AdversarialLoss()
+        self.adversarial_loss = AdversarialLoss(D, G, I_HR, I_LR)
 
     def forward(self):
         return self.content_loss + ((10**-3) * self.adversarial_loss)
