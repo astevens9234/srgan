@@ -1,7 +1,5 @@
 """Pytorch implimentation of SRGAN model, described here:
 c.f. <https://arxiv.org/pdf/1609.04802>
-
-Training data can be found here: <https://storage.googleapis.com/openimages/web/index.html>
 """
 
 import torch
@@ -18,13 +16,17 @@ class SRGAN(nn.Module):
         """Super Resolution Generative Adversarial Network.
 
         Args:
-            resize:
-            batch_size:
-            data_dir:
-            url:
+            resize: image transformation size
+            batch_size: number of images per batch
+            data_dir: location of data
+            url: download location
         """
         super(SRGAN, self).__init__()
 
+        # NOTE: Scaffolded the DataLoader as to download a .zip from the net somewhere into local memory
+        #       I think it would be superior to use the torchvision Datasets built-in dataset.
+        #       I will eval some datasets and make this change later.
+        # NOTE: Make sure to set the networks to the Device.
         extract_zip(url, folder=data_dir)
         self.data = datasets.ImageFolder(data_dir)
         self.data.transform = transforms.Compose(
@@ -42,45 +44,100 @@ class SRGAN(nn.Module):
         self.discriminator = D_Network()
 
 
-
 class G_Network(nn.Module):
 
     def __init__(self):
         """Generator Network"""
         super(G_Network, self).__init__()
 
-        self.conv2d_tran = nn.ConvTranspose2d()
-        # NOTE: Paper calls for ParametricReLU, which appears to be absent from the pytorch API.
-        #       Will leave as a leaky for now while scaffolding - FIXME.
-        #       UPDATE a leaky relu w/ learnable slope is a parametric relu :)
-        self.leaky_relu = nn.LeakyReLU()
-        self.skip_connection = self.leaky_relu
+        self.net = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=0,
+                out_channels=0,
+                kernel_size=0
+            ), 
+            nn.PReLU()
+            )
 
-        self.r_block = (
-            nn.Sequential(
-                self.residual_block(),
-                self.residual_block(),
-                self.residual_block(),
-                self.residual_block(),
-                self.residual_block(),
+        self.skip_connection = nn.Identity()
+
+        self.net.add_module(
+            name="Residual Blocks",
+            module=nn.Sequential(
+                ResidualBlock(),
+                ResidualBlock(),
+                ResidualBlock(),
+                ResidualBlock(),
+                ResidualBlock(),
             ),
         )
 
-        self.conv2d_tran
+        self.net.add_module(
+            name="Elementwise Sum Block", 
+            module=ElementSumBlock(skip_connection=self.skip_connection))
+        
+        self.net.add_module(
+            name="Pixel Shuffler Block",
+            module=nn.Sequential(
+                PixelShuffleBlock(),
+                PixelShuffleBlock(),
+                nn.Conv2d(kernel_size=9,out_channels=3,stride=1)
+            )
+        )
 
-    # TODO:
-    def residual_block(self, in_channels, out_channels, kernel_size, stride):
-        skipx = ...  # FIXME:
-        nn.Sequential(
+    def forward(self, X):
+        return self.net(X)
+
+
+class ResidualBlock(nn.Module):
+    """Wrapper for residual blocks, required to wrap nn.Sequential in nn.Module to perform elementwise sums."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride):
+        super(ResidualBlock, self).__init__()
+        self.sequential = nn.Sequential(
             nn.Conv2d(kernel_size, in_channels, out_channels, stride),
             nn.BatchNorm2d(num_features=out_channels),
-            nn.LeakyReLU(),
+            nn.PReLU(),
             nn.Conv2d(kernel_size, in_channels, out_channels, stride),
             nn.BatchNorm2d(num_features=out_channels),
         )
-        elementwise_sum = ...  # FIXME
 
-        return ...
+    def forward(self, X):
+        residual = X
+        output = self.sequential(X)
+        return output + residual
+
+
+class ElementSumBlock(nn.Module):
+    """Wrapper for the Element Sum Block. Adds initial residual to output"""
+    def __init__(self, skip_connection):
+        super(ElementSumBlock, self).__init__()
+        self.skip_connection = skip_connection
+        self.sequential = nn.Sequential(
+            nn.Conv2d(),
+            nn.BatchNorm2d()
+        )
+
+    def forward(self, X):
+        output = self.sequential(X)
+        return output + self.skip_connection
+
+
+class PixelShuffleBlock(nn.Module):
+    """Wrapper for Pixel Shuffle Blocks."""
+
+    def __init__(self):
+        super(PixelShuffleBlock, self).__init__()
+        self.sequential = nn.Sequential(
+            nn.Conv2d(),
+            nn.PixelShuffle(),
+            nn.PixelShuffle(),
+            nn.PReLU()
+        )
+
+    def forward(self, X):
+        return self.sequential(X) 
+        
 
 
 class D_Network(nn.Module):
@@ -179,8 +236,8 @@ class AdversarialLoss(nn.Module):
         Args:
             D: Discriminator Network
             G: Generator Network
-            I_HR: Batch of real high-resolution images (tensors)
-            I_LR: Batch of low-resolution images (tensors)
+            I_HR (torch.tensor): Batch of real high-resolution images
+            I_LR (torch.tensor): Batch of low-resolution images
         Returns:
             loss (torch.Tensor)
         """
@@ -195,8 +252,8 @@ class AdversarialLoss(nn.Module):
         Args:
             D: Discriminator Network
             G: Generator Network
-            I_HR: Batch of real high-resolution images (tensors)
-            I_LR: Batch of low-resolution images (tensors)
+            I_HR (torch.tensor): Batch of real high-resolution images (tensors)
+            I_LR (torch.tensor): Batch of low-resolution images (tensors)
 
         Returns:
             loss_D: Adversarial Loss
