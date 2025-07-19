@@ -16,10 +16,10 @@ class SRGAN(nn.Module):
         """Super Resolution Generative Adversarial Network.
 
         Args:
-            resize: image transformation size
-            batch_size: number of images per batch
-            data_dir: location of data
-            url: download location
+            resize: Downsampling size
+            batch_size: Number of images per batch
+            data_dir: Location of data
+            url: Download location, expects .zip file link.
         """
         super(SRGAN, self).__init__()
 
@@ -43,6 +43,8 @@ class SRGAN(nn.Module):
         self.generator = G_Network()
         self.discriminator = D_Network()
 
+    def forward(self, X): ...
+
 
 class G_Network(nn.Module):
 
@@ -51,18 +53,11 @@ class G_Network(nn.Module):
         super(G_Network, self).__init__()
 
         self.net = nn.Sequential(
-            nn.LazyConvTranspose2d(
-                out_channels=64,
-                kernel_size=9,
-                stride=1
-            ), 
-            nn.PReLU()
-            )
+            nn.LazyConvTranspose2d(out_channels=64, kernel_size=9, stride=1), nn.PReLU()
+        )
 
         self.skip_connection = nn.Identity()
 
-        # NOTE: Interestingly, the paper prescribes all B res blocks the same parameters.
-        #       Opportunity to abstract that out and play around with params.
         self.net.add_module(
             name="Residual Blocks",
             module=nn.Sequential(
@@ -75,16 +70,17 @@ class G_Network(nn.Module):
         )
 
         self.net.add_module(
-            name="Elementwise Sum Block", 
-            module=ElementSumBlock(skip_connection=self.skip_connection))
-        
+            name="Elementwise Sum Block",
+            module=ElementSumBlock(skip_connection=self.skip_connection),
+        )
+
         self.net.add_module(
             name="Pixel Shuffler Block",
             module=nn.Sequential(
                 PixelShuffleBlock(),
                 PixelShuffleBlock(),
-                nn.LazyConv2d(kernel_size=9, out_channels=3, stride=1)
-            )
+                nn.LazyConv2d(kernel_size=9, out_channels=3, stride=1),
+            ),
         )
 
     def forward(self, X):
@@ -97,10 +93,14 @@ class ResidualBlock(nn.Module):
     def __init__(self, out_channels, kernel_size, stride):
         super(ResidualBlock, self).__init__()
         self.sequential = nn.Sequential(
-            nn.LazyConv2d(out_channels=out_channels, kernel_size=kernel_size, stride=stride),
+            nn.LazyConv2d(
+                out_channels=out_channels, kernel_size=kernel_size, stride=stride
+            ),
             nn.BatchNorm2d(num_features=out_channels),
             nn.PReLU(),
-            nn.LazyConv2d(out_channels=out_channels, kernel_size=kernel_size, stride=stride),
+            nn.LazyConv2d(
+                out_channels=out_channels, kernel_size=kernel_size, stride=stride
+            ),
             nn.BatchNorm2d(num_features=out_channels),
         )
 
@@ -112,12 +112,13 @@ class ResidualBlock(nn.Module):
 
 class ElementSumBlock(nn.Module):
     """Wrapper for the Element Sum Block. Adds initial residual to output"""
+
     def __init__(self, skip_connection):
         super(ElementSumBlock, self).__init__()
         self.skip_connection = skip_connection
         self.sequential = nn.Sequential(
             nn.LazyConv2d(kernel_size=3, out_channels=64, stride=1),
-            nn.BatchNorm2d(num_features=64)
+            nn.BatchNorm2d(num_features=64),
         )
 
     def forward(self, X):
@@ -134,12 +135,12 @@ class PixelShuffleBlock(nn.Module):
             nn.LazyConv2d(kernel_size=3, out_channels=256, stride=1),
             nn.PixelShuffle(upscale_factor=3),
             nn.PixelShuffle(upscale_factor=3),
-            nn.PReLU()
+            nn.PReLU(),
         )
 
     def forward(self, X):
-        return self.sequential(X) 
-        
+        return self.sequential(X)
+
 
 class D_Network(nn.Module):
 
@@ -171,20 +172,25 @@ class D_Network(nn.Module):
             nn.LazyLinear(out_features=1024, bias=True),
             nn.LeakyReLU(negative_slope=0.02),
             nn.LazyLinear(out_features=1, bias=True),
-            nn.Sigmoid()            
+            nn.Sigmoid(),
         )
 
-    
     def forward(self, X):
         return self.net(X)
 
 
-class DiscriminatorBlock(nn.Module): 
+class DiscriminatorBlock(nn.Module):
     """Wrapper for discriminator blocks."""
+
     def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1):
         super(DiscriminatorBlock, self).__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(kernel_size=kernel_size, in_channels=in_channels, out_channels=out_channels, stride=stride),
+            nn.Conv2d(
+                kernel_size=kernel_size,
+                in_channels=in_channels,
+                out_channels=out_channels,
+                stride=stride,
+            ),
             nn.BatchNorm2d(num_features=out_channels),
             nn.LeakyReLU(negative_slope=0.02),
         )
@@ -224,6 +230,7 @@ class ContentLoss(nn.Module):
         Args:
             input_img (torch.Tensor): Generated image (B, C, H, W)
             target_img (torch.Tensor): Target (B, C, H, W)
+
         Returns:
             loss (torch.Tensor)
         """
@@ -247,6 +254,7 @@ class AdversarialLoss(nn.Module):
             G: Generator Network
             I_HR (torch.tensor): Batch of real high-resolution images
             I_LR (torch.tensor): Batch of low-resolution images
+
         Returns:
             loss (torch.Tensor)
         """
@@ -267,7 +275,6 @@ class AdversarialLoss(nn.Module):
         Returns:
             loss_D: Adversarial Loss
         """
-
         D_real = D(I_HR)
         real_labels = torch.ones_like(D_real)
         loss_D_real = nn.BCELoss()(D_real, real_labels)
@@ -307,7 +314,7 @@ class AdversarialLoss(nn.Module):
 
 class PerceptualLoss(nn.Module):
 
-    def __init__(self):
+    def __init__(self, D, G, I_HR, I_LR):
         """Weighted sum of Content Loss & Adversarial Loss."""
         super(PerceptualLoss, self).__init__()
         self.content_loss = ContentLoss()

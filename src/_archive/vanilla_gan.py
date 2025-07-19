@@ -15,7 +15,7 @@ import torch
 from matplotlib import pyplot as plt
 from torch import nn
 
-from .gan_util import Accumulator, training
+from ..gan_util import Accumulator, training
 
 # Loading some stock data
 A = torch.tensor([[1, 2], [-0.1, 0.5]])
