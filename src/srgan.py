@@ -50,17 +50,16 @@ class G_Network(nn.Module):
             ),
         )
 
-        self.net.add_module(
-            name="Elementwise Sum Block",
-            module=ElementSumBlock()
-        )
+        self.net.add_module(name="Elementwise Sum Block", module=ElementSumBlock())
 
         self.net.add_module(
             name="Pixel Shuffler Block",
             module=nn.Sequential(
                 PixelShuffleBlock(in_channels=64, out_channels=256),
                 PixelShuffleBlock(in_channels=16, out_channels=256),
-                nn.Conv2d(in_channels=16, out_channels=3, kernel_size=9, stride=1, padding=4),
+                nn.Conv2d(
+                    in_channels=16, out_channels=3, kernel_size=9, stride=1, padding=4
+                ),
             ),
         )
 
@@ -72,7 +71,6 @@ class G_Network(nn.Module):
         X = X + skip_connection
         X = self.net[4](X)
         return X
-
 
 
 class ResidualBlock(nn.Module):
@@ -145,29 +143,31 @@ class D_Network(nn.Module):
         super(D_Network, self).__init__()
 
         self.net = nn.Sequential(
-            nn.LazyConv2d(kernel_size=3, out_channels=64, stride=1),
+            nn.Conv2d(
+                in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1
+            ),
             nn.LeakyReLU(negative_slope=0.02),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=64, out_channels=128, stride=1
+                kernel_size=3, in_channels=64, out_channels=128, stride=1, padding=1
             ),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=128, out_channels=256, stride=2
+                kernel_size=3, in_channels=128, out_channels=256, stride=2, padding=1
             ),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=256, out_channels=256, stride=1
+                kernel_size=3, in_channels=256, out_channels=256, stride=1, padding=1
             ),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=256, out_channels=512, stride=2
+                kernel_size=3, in_channels=256, out_channels=512, stride=2, padding=1
             ),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=512, out_channels=512, stride=1
+                kernel_size=3, in_channels=512, out_channels=512, stride=1, padding=1
             ),
             DiscriminatorBlock(
-                kernel_size=3, in_channels=512, out_channels=1024, stride=2
+                kernel_size=3, in_channels=512, out_channels=1024, stride=2, padding=1
             ),
-            nn.LazyLinear(out_features=1024, bias=True),
+            nn.Linear(in_features=1024, out_features=1024, bias=True),
             nn.LeakyReLU(negative_slope=0.02),
-            nn.LazyLinear(out_features=1, bias=True),
+            nn.Linear(in_features=1024, out_features=1, bias=True),
             nn.Sigmoid(),
         )
 
@@ -178,7 +178,9 @@ class D_Network(nn.Module):
 class DiscriminatorBlock(nn.Module):
     """Wrapper for discriminator blocks."""
 
-    def __init__(self, in_channels=64, out_channels=64, kernel_size=3, stride=1):
+    def __init__(
+        self, in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1
+    ):
         super(DiscriminatorBlock, self).__init__()
         self.net = nn.Sequential(
             nn.Conv2d(
@@ -186,6 +188,7 @@ class DiscriminatorBlock(nn.Module):
                 in_channels=in_channels,
                 out_channels=out_channels,
                 stride=stride,
+                padding=padding,
             ),
             nn.BatchNorm2d(num_features=out_channels),
             nn.LeakyReLU(negative_slope=0.02),

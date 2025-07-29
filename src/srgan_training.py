@@ -47,8 +47,8 @@ def training_loop(generator, discriminator, device, epochs, learning_rate):
 
     for w in generator.parameters():
         nn.init.normal_(w, 0, 0.02)
-    # for w in discriminator.parameters():
-    #     nn.init.normal_(w, 0, 0.02)
+    for w in discriminator.parameters():
+        nn.init.normal_(w, 0, 0.02)
 
     # grid = {"lr": learning_rate}
     # generator_trainer = torch.optim.Adam(generator.parameters(), **grid)
@@ -63,10 +63,10 @@ def training_loop(generator, discriminator, device, epochs, learning_rate):
     # for _ in range(0, epochs):
     #     ...
 
-#     
-# 
-# 
-#     
+    #
+    #
+    #
+    #
 
     # ts = dt.datetime.now()
     # torch.save(
@@ -90,20 +90,20 @@ def main():
     else:
         device = "cpu"
 
-    data = datasets.ImageFolder(root=f"~/data/{dataset}/train", transform=transforms.ToTensor())
+    data = datasets.ImageFolder(
+        root=f"~/data/{dataset}/train", transform=transforms.ToTensor()
+    )
     data_loader = torch.utils.data.DataLoader(data, batch_size=64, shuffle=True)
 
     generator = SRGAN().generator.to(device)
     discriminator = SRGAN().discriminator.to(device)
 
-    if False: # Sanity Checks
+    if False:  # Sanity Checks
         for X, y in data_loader:
             print(f"Shape of X [N, C, H, W]: {X.shape}")
+            
         summary(generator, input_size=(3, 64, 64))
-
-    # NOTE: This info may be useful to log.
-    # print(generator)
-    # print(discriminator)
+        summary(discriminator, input_size=(3, 64, 64))
 
     training_loop(generator, discriminator, device, epochs, learning_rate)
 
