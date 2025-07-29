@@ -3,5 +3,5 @@ training:
   epochs: 10
   learning_rate: 0.01
 data:
-  dataset: ""
+  dataset: "tiny-imagenet-200"
 note: "This is the initial training configuration."

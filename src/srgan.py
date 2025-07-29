@@ -10,25 +10,9 @@ from torchvision import models, transforms, datasets
 
 class SRGAN(nn.Module):
 
-    def __init__(self, resize=(64, 64), batch_size=256, data_dir="../data"):
-        """Super Resolution Generative Adversarial Network.
-
-        Args:
-            resize: Downsampling size
-            batch_size: Number of images per batch
-            data_dir: Location of data
-            url: Download location, expects .zip file link.
-        """
+    def __init__(self):
+        """Super Resolution Generative Adversarial Network."""
         super(SRGAN, self).__init__()
-
-        data = datasets.ImageNet(data_dir, transform=transforms.ToTensor())
-        data_loader = torch.utils.data.DataLoader(
-            data, batch_size, shuffle=True
-        )  # , num_workers=4)
-
-        for X, y in data_loader:
-            print("Shape of X [N, C, H, W]: ".format(X.shape))
-            print(y.shape)
 
         self.generator = G_Network()
         self.discriminator = D_Network()
@@ -41,59 +25,83 @@ class G_Network(nn.Module):
         super(G_Network, self).__init__()
 
         self.net = nn.Sequential(
-            nn.LazyConvTranspose2d(out_channels=64, kernel_size=9, stride=1), nn.PReLU()
+            nn.Conv2d(
+                in_channels=3, out_channels=64, kernel_size=9, stride=1, padding=4
+            ),
+            nn.PReLU(),
         )
 
-        self.skip_connection = nn.Identity()
+        resblockargs = {
+            "in_channels": 64,
+            "kernel_size": 3,
+            "out_channels": 64,
+            "stride": 1,
+            "padding": 1,
+        }
 
         self.net.add_module(
             name="Residual Blocks",
             module=nn.Sequential(
-                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
-                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
-                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
-                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
-                ResidualBlock(kernel_size=3, out_channels=64, stride=1),
+                ResidualBlock(**resblockargs),
+                ResidualBlock(**resblockargs),
+                ResidualBlock(**resblockargs),
+                ResidualBlock(**resblockargs),
+                ResidualBlock(**resblockargs),
             ),
         )
 
         self.net.add_module(
             name="Elementwise Sum Block",
-            module=ElementSumBlock(skip_connection=self.skip_connection),
+            module=ElementSumBlock()
         )
 
         self.net.add_module(
             name="Pixel Shuffler Block",
             module=nn.Sequential(
-                PixelShuffleBlock(),
-                PixelShuffleBlock(),
-                nn.LazyConv2d(kernel_size=9, out_channels=3, stride=1),
+                PixelShuffleBlock(in_channels=64, out_channels=256),
+                PixelShuffleBlock(in_channels=16, out_channels=256),
+                nn.Conv2d(in_channels=16, out_channels=3, kernel_size=9, stride=1, padding=4),
             ),
         )
 
     def forward(self, X):
-        return self.net(X)
+        X = self.net[:2](X)
+        skip_connection = X
+        X = self.net[2](X)
+        X = self.net[3](X)
+        X = X + skip_connection
+        X = self.net[4](X)
+        return X
+
 
 
 class ResidualBlock(nn.Module):
     """Wrapper for residual blocks, required to wrap nn.Sequential in nn.Module to perform elementwise sums."""
 
-    def __init__(self, out_channels, kernel_size, stride):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding):
         super(ResidualBlock, self).__init__()
         self.sequential = nn.Sequential(
-            nn.LazyConv2d(
-                out_channels=out_channels, kernel_size=kernel_size, stride=stride
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
             ),
             nn.BatchNorm2d(num_features=out_channels),
             nn.PReLU(),
-            nn.LazyConv2d(
-                out_channels=out_channels, kernel_size=kernel_size, stride=stride
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
             ),
             nn.BatchNorm2d(num_features=out_channels),
         )
 
     def forward(self, X):
-        residual = X
+        residual = X.clone()
         output = self.sequential(X)
         return output + residual
 
@@ -101,28 +109,28 @@ class ResidualBlock(nn.Module):
 class ElementSumBlock(nn.Module):
     """Wrapper for the Element Sum Block. Adds initial residual to output"""
 
-    def __init__(self, skip_connection):
+    def __init__(self):
         super(ElementSumBlock, self).__init__()
-        self.skip_connection = skip_connection
         self.sequential = nn.Sequential(
-            nn.LazyConv2d(kernel_size=3, out_channels=64, stride=1),
+            nn.Conv2d(
+                in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1
+            ),
             nn.BatchNorm2d(num_features=64),
         )
 
     def forward(self, X):
         output = self.sequential(X)
-        return output + self.skip_connection
+        return output
 
 
 class PixelShuffleBlock(nn.Module):
     """Wrapper for Pixel Shuffle Blocks."""
 
-    def __init__(self):
+    def __init__(self, in_channels, out_channels):
         super(PixelShuffleBlock, self).__init__()
         self.sequential = nn.Sequential(
-            nn.LazyConv2d(kernel_size=3, out_channels=256, stride=1),
-            nn.PixelShuffle(upscale_factor=3),
-            nn.PixelShuffle(upscale_factor=3),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1),
+            nn.PixelShuffle(upscale_factor=4),
             nn.PReLU(),
         )
 
