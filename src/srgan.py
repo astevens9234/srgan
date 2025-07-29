@@ -7,12 +7,10 @@ import torch
 from torch import nn
 from torchvision import models, transforms, datasets
 
-from gan_util import extract_zip
-
 
 class SRGAN(nn.Module):
 
-    def __init__(self, resize=(64, 64), batch_size=256, data_dir="../data", url=""):
+    def __init__(self, resize=(64, 64), batch_size=256, data_dir="../data"):
         """Super Resolution Generative Adversarial Network.
 
         Args:
@@ -23,27 +21,17 @@ class SRGAN(nn.Module):
         """
         super(SRGAN, self).__init__()
 
-        # NOTE: Scaffolded the DataLoader as to download a .zip from the net somewhere into local memory
-        #       I think it would be superior to use the torchvision Datasets built-in dataset.
-        #       I will eval some datasets and make this change later.
-        # NOTE: Make sure to set the networks to the Device.
-        extract_zip(url, folder=data_dir)
-        self.data = datasets.ImageFolder(data_dir)
-        self.data.transform = transforms.Compose(
-            [
-                transforms.Resize(resize),
-                transforms.ToTensor(),
-                transforms.Normalize(0.5, 0.5),
-            ]
-        )
-        self.data_iter = torch.utils.data.DataLoader(
-            self.data, batch_size=batch_size, shuffle=True
-        )
+        data = datasets.ImageNet(data_dir, transform=transforms.ToTensor())
+        data_loader = torch.utils.data.DataLoader(
+            data, batch_size, shuffle=True
+        )  # , num_workers=4)
+
+        for X, y in data_loader:
+            print("Shape of X [N, C, H, W]: ".format(X.shape))
+            print(y.shape)
 
         self.generator = G_Network()
         self.discriminator = D_Network()
-
-    def forward(self, X): ...
 
 
 class G_Network(nn.Module):
@@ -247,40 +235,35 @@ class ContentLoss(nn.Module):
 
 class AdversarialLoss(nn.Module):
 
-    def __init__(self, G, D, I_HR, I_LR):
+    def __init__(self, D_real, G_I_LR):
         """
         Args:
-            D: Discriminator Network
-            G: Generator Network
-            I_HR (torch.tensor): Batch of real high-resolution images
-            I_LR (torch.tensor): Batch of low-resolution images
+            D_real (torch.Tensor): High Resolution image passed through the Discriminator Network
+            G_I_LR (torch.Tensor): Low Resolution image passed through the Generator Network
 
         Returns:
             loss (torch.Tensor)
         """
         super(AdversarialLoss, self).__init__()
-        self.loss_d = self.compute_D_loss(G, D, I_HR, I_LR)
+        self.loss_d = self.compute_D_loss(D_real, G_I_LR)
 
-    def compute_D_loss(self, D, G, I_HR, I_LR):
+    def compute_D_loss(self, D_real, G_I_LR) -> torch.Tensor:
         """
         Compute adversarial loss for the discriminator.
         Real image targes == 1, fake images == 0.
 
         Args:
-            D: Discriminator Network
-            G: Generator Network
-            I_HR (torch.tensor): Batch of real high-resolution images (tensors)
-            I_LR (torch.tensor): Batch of low-resolution images (tensors)
+            D_real (torch.Tensor): High Resolution image passed through the Discriminator Network
+            G_I_LR (torch.Tensor): Low Resolution image passed through the Generator Network
 
         Returns:
             loss_D: Adversarial Loss
         """
-        D_real = D(I_HR)
+
         real_labels = torch.ones_like(D_real)
         loss_D_real = nn.BCELoss()(D_real, real_labels)
 
-        G_I_LR = G(I_LR)
-        D_fake = D(G_I_LR.detach())  # Detach to prevent backpropigation through G
+        D_fake = G_I_LR.detach()  # Detach to prevent backpropigation through G
         fake_labels = torch.zeros_like(D_fake)
         loss_D_fake = nn.BCELoss()(D_fake, fake_labels)
 
@@ -288,37 +271,40 @@ class AdversarialLoss(nn.Module):
 
         return loss_D
 
-    def compute_G_loss(self, D, G, I_LR):
-        """
-        Compute adversarial loss for Generator.
-        Real image targets == 1, fake images == 0.
+    # def compute_G_loss(self, D, G, I_LR) -> float:
+    #     """
+    #     Compute adversarial loss for Generator.
+    #     Real image targets == 1, fake images == 0.
 
-        Args:
-            D: Discriminator Network
-            G: Generator Network
-            I_LR: Batch of low-resolution images (tensors)
+    #     Args:
+    #         D: Discriminator Network
+    #         G: Generator Network
+    #         I_LR: Batch of low-resolution images (tensors)
 
-        Returns:
-            loss_G: Generator's adversarial loss
-        """
-        G_I_LR = G(I_LR)
-        D_fake = D(G_I_LR)
-        real_labels = torch.ones_like(D_fake)
-        loss_G = nn.BCELoss()(D_fake, real_labels)
+    #     Returns:
+    #         loss_G: Generator's adversarial loss
+    #     """
+    #     G_I_LR = G(I_LR)
+    #     D_fake = D(G_I_LR)
+    #     real_labels = torch.ones_like(D_fake)
+    #     loss_G = nn.BCELoss()(D_fake, real_labels)
 
-        return loss_G
+    #     return loss_G
 
-    def forward(self):
-        raise NotImplementedError
+    # FIXME. confer w/ paper to correct this.
+    def forward(self) -> torch.Tensor:
+        return self.loss_d
 
 
 class PerceptualLoss(nn.Module):
 
-    def __init__(self, D, G, I_HR, I_LR):
+    def __init__(self, D_real, G_I_LR):
         """Weighted sum of Content Loss & Adversarial Loss."""
         super(PerceptualLoss, self).__init__()
         self.content_loss = ContentLoss()
-        self.adversarial_loss = AdversarialLoss(D, G, I_HR, I_LR)
+        self.adversarial_loss = AdversarialLoss(D_real, G_I_LR)
 
     def forward(self):
-        return self.content_loss + ((10**-3) * self.adversarial_loss)
+        return torch.Tensor(self.content_loss) + torch.mul(
+            torch.Tensor(self.adversarial_loss), (10**-3)
+        )  # FIXME

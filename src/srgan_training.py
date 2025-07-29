@@ -5,6 +5,8 @@ py ./src/srgan_trianing.py --config config.yaml
 ^ add ability to pass config. c.f. argparse library
 """
 
+# NOTE: https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+
 import datetime as dt
 import logging
 import yaml
@@ -12,17 +14,17 @@ import yaml
 import torch
 
 from torch import nn
+from torchvision import models, transforms, datasets
+
 from srgan import SRGAN, PerceptualLoss
 
 
-with open("config.yaml", "r") as f:
+with open("./src/config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 epochs = config["training"]["epochs"]
 learning_rate = config["training"]["learning_rate"]
 run_name = config["training"]["run_name"]
-
-net = SRGAN(resize=(64, 64))
 
 
 def training_loop(generator, discriminator, device, epochs, learning_rate):
@@ -45,11 +47,19 @@ def training_loop(generator, discriminator, device, epochs, learning_rate):
     generator_trainer = torch.optim.Adam(generator.parameters(), **grid)
     discriminator_trainer = torch.optim.Adam(discriminator.parameters(), **grid)
 
-    # FIXME: What is the succinct way to pass batches back and forth?
-    loss = PerceptualLoss(generator, discriminator)
+    # FIXME: Now I need to correct for I_HR & I_LR coming from the DataLoader.
+    # D_real = discriminator(I_HR)
+    # G_I_LR = generator(I_LR)
+
+    # loss = PerceptualLoss(D_real, G_I_LR)
 
     for _ in range(0, epochs):
         ...
+
+#     
+# 
+# 
+#     
 
     ts = dt.datetime.now()
     torch.save(
@@ -71,10 +81,21 @@ def main():
     else:
         device = "cpu"
 
+    data = datasets.ImageNet("../data", transform=transforms.ToTensor())
+    data_loader = torch.utils.data.DataLoader(data, batch_size=64, shuffle=True) #, num_workers=4)
+
+    print("hit")
+
+    for X, y in data_loader:
+        print("Shape of X [N, C, H, W]: ".format(X.shape))
+        print(y.shape)
+
+    net = SRGAN()
+
     training_loop(net.generator, net.discriminator, device, epochs, learning_rate)
 
     # TODO: Generate summary of training run...
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     main()

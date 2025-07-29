@@ -2,10 +2,12 @@
 *.jpeg
 *.png
 *.zip
+*.gz
 *.tar
 *.params
 *.log
 *.txt
+*.ipynb
 __pycache__
 env
 .env
