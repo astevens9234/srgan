@@ -9,7 +9,7 @@ py ./src/srgan_trianing.py --config config.yaml
 
 import datetime as dt
 import logging
-import pdb
+import warnings
 import yaml
 
 import torch
@@ -20,48 +20,76 @@ from torchsummary import summary
 
 from srgan import SRGAN, PerceptualLoss
 
+warnings.simplefilter(action="ignore")
 
 with open("./src/config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
+# NOTE: https://docs.pytorch.org/tutorials/beginner/hyperparameter_tuning_tutorial.html
+betas = config["training"]["betas"]
 dataset = config["data"]["dataset"]
 epochs = config["training"]["epochs"]
 learning_rate = config["training"]["learning_rate"]
+batch_size = config["training"]["batch_size"]
 run_name = config["training"]["run_name"]
 
 
-def training_loop(generator, discriminator, device, epochs, learning_rate):
+def training_loop(generator, discriminator, dataloader, device, epochs, learning_rate, batch_size, betas):
     """
     Args:
         generator: generator network
         discriminator: discriminator network
         device: chip to run training on
         epochs: number of training iterations
-        learning_rate: optimizer parameter
+        learning_rate: rate of change updating model parameters per batch
+        batch_size: number of samples per batch
     """
-
-    # TODO: I should remove the few Lazy calls in the network
-    #       For now, here is an init call.
-    # dummy = torch.randn(64, 3, 64, 64)
-    # generator(dummy)
 
     for w in generator.parameters():
         nn.init.normal_(w, 0, 0.02)
     for w in discriminator.parameters():
         nn.init.normal_(w, 0, 0.02)
 
-    # grid = {"lr": learning_rate}
-    # generator_trainer = torch.optim.Adam(generator.parameters(), **grid)
-    # discriminator_trainer = torch.optim.Adam(discriminator.parameters(), **grid)
+    grid = {"lr": learning_rate, "betas":betas}
+    generator_trainer = torch.optim.Adam(generator.parameters(), **grid)
+    discriminator_trainer = torch.optim.Adam(discriminator.parameters(), **grid)
 
-    # FIXME: Now I need to correct for I_HR & I_LR coming from the DataLoader.
-    # D_real = discriminator(I_HR)
-    # G_I_LR = generator(I_LR)
+    """ Leaving off here 07/29
+    - Both networks are operational.
+    - Need to flesh out the training loop.
+        - prediction w/ generator
+        - classification w/ discriminator
+        - think I need to rework the loss functions.
+    """
 
-    # loss = PerceptualLoss(D_real, G_I_LR)
+    lossfx = PerceptualLoss()
 
-    # for _ in range(0, epochs):
-    #     ...
+    # Downsampling I_HR
+    # NOTE: This reduces cost of training, at the expense of performance.
+    pool = nn.AvgPool2d(kernel_size=4, stride=4)
+
+    generator.train()
+    discriminator.train()
+
+    for batch, (X, _) in enumerate(dataloader):
+
+        print(batch)
+
+        X = X.to(device)
+        I_LR = pool(X)
+        G_I_LR = generator(I_LR)
+        D_real = discriminator(G_I_LR)
+
+        # loss = lossfx(D_real, G_I_LR)
+
+        # Backprop
+        # generator_trainer.zero_grad()
+        # discriminator_trainer.zero_grad()
+        # loss.backward()
+        # generator_trainer.step()
+        # discriminator_trainer.step()
+
+        # print(f"loss: {loss}")
 
     #
     #
@@ -105,9 +133,7 @@ def main():
         summary(generator, input_size=(3, 64, 64))
         summary(discriminator, input_size=(3, 64, 64))
 
-    training_loop(generator, discriminator, device, epochs, learning_rate)
-
-    # TODO: Generate summary of training run...
+    training_loop(generator, discriminator, data_loader, device, epochs, learning_rate, batch_size, betas)
 
 
 if __name__ == "__main__":

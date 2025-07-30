@@ -19,6 +19,13 @@ class SRGAN(nn.Module):
 
 
 class G_Network(nn.Module):
+    """Generator Module.
+    - Expects Low Resolution (LR) image in input, ex [batch, 3, 16, 16],
+    - downsampled from source [batch, 3, 64, 64] in the training loop.
+
+    Output:
+        Image in Super Resolution: [batch, 3, 64, 64]
+    """
 
     def __init__(self):
         """Generator Network"""
@@ -55,10 +62,10 @@ class G_Network(nn.Module):
         self.net.add_module(
             name="Pixel Shuffler Block",
             module=nn.Sequential(
-                PixelShuffleBlock(in_channels=64, out_channels=256),
-                PixelShuffleBlock(in_channels=16, out_channels=256),
+                PixelShuffleBlock(in_channels=64, out_channels=64*16),
+                # PixelShuffleBlock(in_channels=16, out_channels=256),
                 nn.Conv2d(
-                    in_channels=16, out_channels=3, kernel_size=9, stride=1, padding=4
+                    in_channels=64, out_channels=3, kernel_size=9, stride=1, padding=4
                 ),
             ),
         )
@@ -137,42 +144,42 @@ class PixelShuffleBlock(nn.Module):
 
 
 class D_Network(nn.Module):
+    """Discriminator Module.
+    Expects input from the Generator network, which outputs [batch, 3, 64, 64]
+    Outputs tensor [batch, 1]
+    """
 
     def __init__(self):
         """Discriminator Network. Eight convolutional layers followed by two dense layers."""
         super(D_Network, self).__init__()
 
         self.net = nn.Sequential(
-            nn.Conv2d(
-                in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1
-            ),
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1),              
+            nn.LeakyReLU(negative_slope=0.02),                                                          
+            DiscriminatorBlock(kernel_size=3, in_channels=64, out_channels=64, stride=2, padding=1),    
+            DiscriminatorBlock(kernel_size=3, in_channels=64, out_channels=128, stride=1, padding=1),   
+            DiscriminatorBlock(kernel_size=3, in_channels=128, out_channels=128, stride=2, padding=1),  
+            DiscriminatorBlock(kernel_size=3, in_channels=128, out_channels=256, stride=1, padding=1),  
+            DiscriminatorBlock(kernel_size=3, in_channels=256, out_channels=256, stride=2, padding=1),  
+            DiscriminatorBlock(kernel_size=3, in_channels=256, out_channels=512, stride=1, padding=1),  
+            DiscriminatorBlock(kernel_size=3, in_channels=512, out_channels=512, stride=2, padding=1),  
+        )
+
+        self.net.add_module(
+            name="Dense Layer",
+            module=nn.Sequential(
+            nn.Linear(in_features=512*8*8, out_features=1028, bias=True),
             nn.LeakyReLU(negative_slope=0.02),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=64, out_channels=128, stride=1, padding=1
-            ),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=128, out_channels=256, stride=2, padding=1
-            ),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=256, out_channels=256, stride=1, padding=1
-            ),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=256, out_channels=512, stride=2, padding=1
-            ),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=512, out_channels=512, stride=1, padding=1
-            ),
-            DiscriminatorBlock(
-                kernel_size=3, in_channels=512, out_channels=1024, stride=2, padding=1
-            ),
-            nn.Linear(in_features=1024, out_features=1024, bias=True),
-            nn.LeakyReLU(negative_slope=0.02),
-            nn.Linear(in_features=1024, out_features=1, bias=True),
-            nn.Sigmoid(),
+            nn.Linear(in_features=1028, out_features=1, bias=True),
+            nn.Sigmoid()
+            )
         )
 
     def forward(self, X):
-        return self.net(X)
+        X = self.net[:8](X)
+        X = X.view(64, -1) # Flatten for the Dense layers
+        X = self.net[9](X)
+        return X
 
 
 class DiscriminatorBlock(nn.Module):
@@ -200,13 +207,16 @@ class DiscriminatorBlock(nn.Module):
 
 class ContentLoss(nn.Module):
 
-    def __init__(self, layer_index=20, device="cuda"):
+    def __init__(self, layer_index=20):
         """19 Layer VGG loss purposed at: <https://arxiv.org/pdf/1409.1556>.
         Takes MSE Between Feature Maps.
         """
         super(ContentLoss, self).__init__()
 
-        device = torch.device(device)
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
 
         vgg = models.vgg19(pretrained=True).features
         self.vgg = vgg.eval().to(device)
@@ -216,8 +226,6 @@ class ContentLoss(nn.Module):
             param.requires_grad = False
 
         # NOTE: mean/std are stock values
-        # TODO: calc these values from the training set
-        # NOTE: shouldn't normalization happen at input stage?
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         ).to(device)
@@ -231,7 +239,7 @@ class ContentLoss(nn.Module):
             target_img (torch.Tensor): Target (B, C, H, W)
 
         Returns:
-            loss (torch.Tensor)
+            loss
         """
         input_img = self.normalize(input_img)
         target_img = self.normalize(target_img)
@@ -246,8 +254,10 @@ class ContentLoss(nn.Module):
 
 class AdversarialLoss(nn.Module):
 
-    def __init__(self, D_real, G_I_LR):
-        """
+    def __init__(self):
+        """Compute adversarial loss for the discriminator.
+        Real image targes == 1, fake images == 0.
+
         Args:
             D_real (torch.Tensor): High Resolution image passed through the Discriminator Network
             G_I_LR (torch.Tensor): Low Resolution image passed through the Generator Network
@@ -256,25 +266,11 @@ class AdversarialLoss(nn.Module):
             loss (torch.Tensor)
         """
         super(AdversarialLoss, self).__init__()
-        self.loss_d = self.compute_D_loss(D_real, G_I_LR)
 
-    def compute_D_loss(self, D_real, G_I_LR) -> torch.Tensor:
-        """
-        Compute adversarial loss for the discriminator.
-        Real image targes == 1, fake images == 0.
-
-        Args:
-            D_real (torch.Tensor): High Resolution image passed through the Discriminator Network
-            G_I_LR (torch.Tensor): Low Resolution image passed through the Generator Network
-
-        Returns:
-            loss_D: Adversarial Loss
-        """
-
+    def forward(self, D_real, G_I_LR):
         real_labels = torch.ones_like(D_real)
         loss_D_real = nn.BCELoss()(D_real, real_labels)
-
-        D_fake = G_I_LR.detach()  # Detach to prevent backpropigation through G
+        D_fake = G_I_LR.detach()  # Detach to prevent backprop through G
         fake_labels = torch.zeros_like(D_fake)
         loss_D_fake = nn.BCELoss()(D_fake, fake_labels)
 
@@ -282,40 +278,16 @@ class AdversarialLoss(nn.Module):
 
         return loss_D
 
-    # def compute_G_loss(self, D, G, I_LR) -> float:
-    #     """
-    #     Compute adversarial loss for Generator.
-    #     Real image targets == 1, fake images == 0.
-
-    #     Args:
-    #         D: Discriminator Network
-    #         G: Generator Network
-    #         I_LR: Batch of low-resolution images (tensors)
-
-    #     Returns:
-    #         loss_G: Generator's adversarial loss
-    #     """
-    #     G_I_LR = G(I_LR)
-    #     D_fake = D(G_I_LR)
-    #     real_labels = torch.ones_like(D_fake)
-    #     loss_G = nn.BCELoss()(D_fake, real_labels)
-
-    #     return loss_G
-
-    # FIXME. confer w/ paper to correct this.
-    def forward(self) -> torch.Tensor:
-        return self.loss_d
-
 
 class PerceptualLoss(nn.Module):
 
-    def __init__(self, D_real, G_I_LR):
+    def __init__(self):
         """Weighted sum of Content Loss & Adversarial Loss."""
         super(PerceptualLoss, self).__init__()
         self.content_loss = ContentLoss()
-        self.adversarial_loss = AdversarialLoss(D_real, G_I_LR)
+        self.adversarial_loss = AdversarialLoss()
 
-    def forward(self):
-        return torch.Tensor(self.content_loss) + torch.mul(
-            torch.Tensor(self.adversarial_loss), (10**-3)
-        )  # FIXME
+    def forward(self, D_real, G_I_LR):
+        al = self.adversarial_loss(D_real, G_I_LR)
+        cl = self.content_loss()
+        return cl + (10**-3 * al)
