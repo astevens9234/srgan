@@ -9,18 +9,20 @@ py ./src/srgan_trianing.py --config config.yaml
 
 import datetime as dt
 import logging
+import os
 import warnings
 import yaml
 
 import torch
 
 from torch import nn
-from torchvision import models, transforms, datasets
+from torchvision import transforms, datasets
 from torchsummary import summary
 
 from srgan import SRGAN, PerceptualLoss
 
 warnings.simplefilter(action="ignore")
+logging.basicConfig(filename="./logs/srgan.log", encoding="utf-8", level=logging.INFO)
 
 with open("./src/config.yaml", "r") as f:
     config = yaml.safe_load(f)
@@ -32,17 +34,27 @@ epochs = config["training"]["epochs"]
 learning_rate = config["training"]["learning_rate"]
 batch_size = config["training"]["batch_size"]
 run_name = config["training"]["run_name"]
+note = config["note"]
 
 
-def training_loop(generator, discriminator, dataloader, device, epochs, learning_rate, batch_size, betas):
+def training_loop(
+    generator,
+    discriminator,
+    dataloader,
+    device,
+    learning_rate,
+    batch_size,
+    betas,
+):
     """
     Args:
         generator: generator network
         discriminator: discriminator network
+        dataloader: pytorch DataLoader object
         device: chip to run training on
-        epochs: number of training iterations
         learning_rate: rate of change updating model parameters per batch
         batch_size: number of samples per batch
+        betas: coefficients for optimizer
     """
 
     for w in generator.parameters():
@@ -50,19 +62,12 @@ def training_loop(generator, discriminator, dataloader, device, epochs, learning
     for w in discriminator.parameters():
         nn.init.normal_(w, 0, 0.02)
 
-    grid = {"lr": learning_rate, "betas":betas}
+    grid = {"lr": learning_rate, "betas": betas}
     generator_trainer = torch.optim.Adam(generator.parameters(), **grid)
     discriminator_trainer = torch.optim.Adam(discriminator.parameters(), **grid)
 
-    """ Leaving off here 07/29
-    - Both networks are operational.
-    - Need to flesh out the training loop.
-        - prediction w/ generator
-        - classification w/ discriminator
-        - think I need to rework the loss functions.
-    """
-
     lossfx = PerceptualLoss()
+    size = len(dataloader.dataset)
 
     # Downsampling I_HR
     # NOTE: This reduces cost of training, at the expense of performance.
@@ -73,42 +78,41 @@ def training_loop(generator, discriminator, dataloader, device, epochs, learning
 
     for batch, (X, _) in enumerate(dataloader):
 
-        print(batch)
-
         X = X.to(device)
-        I_LR = pool(X)
-        G_I_LR = generator(I_LR)
-        D_real = discriminator(G_I_LR)
 
-        # loss = lossfx(D_real, G_I_LR)
+        if X.shape != torch.Size([64, 3, 64, 64]):
+            continue
+
+        I_LR = pool(X)
+        I_SR = generator(I_LR)
+        D_pred = discriminator(I_SR)
+
+        loss = lossfx(D_pred=D_pred, I_SR=I_SR, X=X)
 
         # Backprop
-        # generator_trainer.zero_grad()
-        # discriminator_trainer.zero_grad()
-        # loss.backward()
-        # generator_trainer.step()
-        # discriminator_trainer.step()
+        generator_trainer.zero_grad()
+        discriminator_trainer.zero_grad()
+        loss.backward()
+        generator_trainer.step()
+        discriminator_trainer.step()
 
-        # print(f"loss: {loss}")
+        if batch % 100 == 0:
+            loss, current = loss.item(), batch * batch_size + len(X)
+            logging.info(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
-    #
-    #
-    #
-    #
+    # TODO: Get this working. Probably just need to restart machine.
+    # if not os.path.exists("./models"):
+    #     os.makedirs("./models")
+    #     print("making ./models")
 
-    # ts = dt.datetime.now()
-    # torch.save(
-    #     generator.state_dict(),
-    #     "./models/srgan-generator-{}-{}.params".format(run_name, ts),
-    # )
-    # torch.save(
-    #     discriminator.state_dict(),
-    #     "./models/srgan-discriminator-{}-{}.params".format(run_name, ts),
-    # )
-
-    # TODO: Quality Logging & perhaps Profiling
-
-    print("close")
+    torch.save(
+        generator.state_dict(),
+        f"./srgan-generator-{run_name}.params",
+    )
+    torch.save(
+        discriminator.state_dict(),
+        f"./srgan-discriminator-{run_name}.params",
+    )
 
 
 def main():
@@ -129,11 +133,22 @@ def main():
     if False:  # Sanity Checks
         for X, y in data_loader:
             print(f"Shape of X [N, C, H, W]: {X.shape}")
-            
+
         summary(generator, input_size=(3, 64, 64))
         summary(discriminator, input_size=(3, 64, 64))
 
-    training_loop(generator, discriminator, data_loader, device, epochs, learning_rate, batch_size, betas)
+    logging.info(f"{run_name}\n{note}\n")
+    for e in range(epochs):
+        logging.info(f"Epoch {e+1}\n{"*"*20}")
+        training_loop(
+            generator,
+            discriminator,
+            data_loader,
+            device,
+            learning_rate,
+            batch_size,
+            betas
+        )
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ c.f. <https://arxiv.org/pdf/1609.04802>
 import torch
 
 from torch import nn
-from torchvision import models, transforms, datasets
+from torchvision import models, transforms
 
 
 class SRGAN(nn.Module):
@@ -232,24 +232,24 @@ class ContentLoss(nn.Module):
 
         self.mse_loss = nn.MSELoss()
 
-    def forward(self, input_img, target_img):
+    def forward(self, I_SR, X):
         """
         Args:
-            input_img (torch.Tensor): Generated image (B, C, H, W)
-            target_img (torch.Tensor): Target (B, C, H, W)
+            I_SR (torch.Tensor): Generated Image G(I_LR) [B, C, H, W]
+            X (torch.Tensor): Reference Image I_HR [B, C, H, W]
 
         Returns:
-            loss
+            loss (torch.Tensor)
         """
-        input_img = self.normalize(input_img)
-        target_img = self.normalize(target_img)
+        I_SR = self.normalize(I_SR)
+        X = self.normalize(X)
 
         for i, layer in enumerate(self.vgg):  # type: ignore
-            input_img = layer(input_img)
-            target_img = layer(target_img)
+            I_SR = layer(I_SR)
+            X = layer(X)
 
             if i == self.layer_index:
-                return self.mse_loss(input_img, target_img)
+                return self.mse_loss(I_SR, X)
 
 
 class AdversarialLoss(nn.Module):
@@ -259,22 +259,22 @@ class AdversarialLoss(nn.Module):
         Real image targes == 1, fake images == 0.
 
         Args:
-            D_real (torch.Tensor): High Resolution image passed through the Discriminator Network
-            G_I_LR (torch.Tensor): Low Resolution image passed through the Generator Network
+            D_pred (torch.Tensor): High Resolution image passed through the Discriminator Network
+            I_SR (torch.Tensor): Low Resolution image passed through the Generator Network
 
         Returns:
             loss (torch.Tensor)
         """
         super(AdversarialLoss, self).__init__()
 
-    def forward(self, D_real, G_I_LR):
-        real_labels = torch.ones_like(D_real)
-        loss_D_real = nn.BCELoss()(D_real, real_labels)
-        D_fake = G_I_LR.detach()  # Detach to prevent backprop through G
+    def forward(self, D_pred, I_SR):
+        real_labels = torch.ones_like(D_pred)
+        loss_D_pred = nn.BCEWithLogitsLoss()(D_pred, real_labels)
+        D_fake = I_SR.detach()  # Detach to prevent backprop through G
         fake_labels = torch.zeros_like(D_fake)
-        loss_D_fake = nn.BCELoss()(D_fake, fake_labels)
+        loss_D_fake = nn.BCEWithLogitsLoss()(D_fake, fake_labels)
 
-        loss_D = loss_D_real + loss_D_fake
+        loss_D = loss_D_pred + loss_D_fake
 
         return loss_D
 
@@ -287,7 +287,7 @@ class PerceptualLoss(nn.Module):
         self.content_loss = ContentLoss()
         self.adversarial_loss = AdversarialLoss()
 
-    def forward(self, D_real, G_I_LR):
-        al = self.adversarial_loss(D_real, G_I_LR)
-        cl = self.content_loss()
+    def forward(self, D_pred, I_SR, X):
+        al = self.adversarial_loss(D_pred, I_SR)
+        cl = self.content_loss(I_SR, X)
         return cl + (10**-3 * al)
