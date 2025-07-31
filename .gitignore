@@ -13,3 +13,5 @@ env
 .env
 data
 /data
+api
+/api

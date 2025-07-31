@@ -21,9 +21,6 @@ from torchsummary import summary
 
 from srgan import SRGAN, PerceptualLoss
 
-warnings.simplefilter(action="ignore")
-logging.basicConfig(filename="./logs/srgan.log", encoding="utf-8", level=logging.INFO)
-
 with open("./src/config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
@@ -36,6 +33,8 @@ batch_size = config["training"]["batch_size"]
 run_name = config["training"]["run_name"]
 note = config["note"]
 
+warnings.simplefilter(action="ignore")
+logging.basicConfig(filename=f"./logs/srgan-{run_name}.log", encoding="utf-8", level=logging.INFO)
 
 def training_loop(
     generator,
@@ -45,6 +44,7 @@ def training_loop(
     learning_rate,
     batch_size,
     betas,
+    epochs
 ):
     """
     Args:
@@ -76,43 +76,44 @@ def training_loop(
     generator.train()
     discriminator.train()
 
-    for batch, (X, _) in enumerate(dataloader):
+    for e in range(0, epochs):
+        logging.info(f"Epoch {e+1}\n{"*"*20}")
 
-        X = X.to(device)
+        for batch, (X, _) in enumerate(dataloader):
 
-        if X.shape != torch.Size([64, 3, 64, 64]):
-            continue
+            X = X.to(device)
 
-        I_LR = pool(X)
-        I_SR = generator(I_LR)
-        D_pred = discriminator(I_SR)
+            if X.shape != torch.Size([64, 3, 64, 64]):
+                continue
 
-        loss = lossfx(D_pred=D_pred, I_SR=I_SR, X=X)
+            with torch.autocast(device_type=device):
+                I_LR = pool(X)
+                I_SR = generator(I_LR)
+                D_pred = discriminator(I_SR)
 
-        # Backprop
-        generator_trainer.zero_grad()
-        discriminator_trainer.zero_grad()
-        loss.backward()
-        generator_trainer.step()
-        discriminator_trainer.step()
+                loss = lossfx(D_pred=D_pred, I_SR=I_SR, X=X)
 
-        if batch % 100 == 0:
-            loss, current = loss.item(), batch * batch_size + len(X)
-            logging.info(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
+            generator_trainer.zero_grad()
+            discriminator_trainer.zero_grad()
+            loss.backward()
+            generator_trainer.step()
+            discriminator_trainer.step()
 
-    # TODO: Get this working. Probably just need to restart machine.
-    # if not os.path.exists("./models"):
-    #     os.makedirs("./models")
-    #     print("making ./models")
+            if batch % 100 == 0:
+                loss, current = loss.item(), batch * batch_size + len(X)
+                logging.info(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
-    torch.save(
-        generator.state_dict(),
-        f"./srgan-generator-{run_name}.params",
-    )
-    torch.save(
-        discriminator.state_dict(),
-        f"./srgan-discriminator-{run_name}.params",
-    )
+                # Checkpoints
+                torch.save(
+                    generator.state_dict(),
+                    f"./srgan-generator-{run_name}.params",
+                )
+                torch.save(
+                    discriminator.state_dict(),
+                    f"./srgan-discriminator-{run_name}.params",
+                )
+
+
 
 
 def main():
@@ -138,17 +139,18 @@ def main():
         summary(discriminator, input_size=(3, 64, 64))
 
     logging.info(f"{run_name}\n{note}\n")
-    for e in range(epochs):
-        logging.info(f"Epoch {e+1}\n{"*"*20}")
-        training_loop(
-            generator,
-            discriminator,
-            data_loader,
-            device,
-            learning_rate,
-            batch_size,
-            betas
-        )
+
+    training_loop(
+        generator,
+        discriminator,
+        data_loader,
+        device,
+        learning_rate,
+        batch_size,
+        betas,
+        epochs
+    )
+
 
 
 if __name__ == "__main__":
