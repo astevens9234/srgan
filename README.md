@@ -5,7 +5,7 @@ Requirements:
 - Pytorch <https://pytorch.org/get-started/locally/>
 
 Data:
-- This case study was trained using <tiny-imagenet-200> as opposed to the full ImageNet of the original paper.
+- This case study was trained using tiny-imagenet-200 as opposed to the full ImageNet of the original paper.
 
 Usage:
 - Apply your configuration in the ./src/config.yaml
