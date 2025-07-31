@@ -14,7 +14,7 @@ import torchvision
 
 from torch import nn
 
-from gan_util import Accumulator, update_D, update_G, extract_zip
+from _archive.gan_util import Accumulator, update_D, update_G, extract_zip
 
 warnings.simplefilter(action="ignore")
 logging.basicConfig(filename="./logs/dcgan.log", encoding="utf-8", level=logging.INFO)

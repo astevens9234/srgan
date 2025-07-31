@@ -1,9 +1,4 @@
-"""Header level training script for SRGAN.
-
-To execute, spin up a virtual environment and run the command:
-py ./src/srgan_trianing.py --config config.yaml
-^ add ability to pass config. c.f. argparse library
-"""
+"""Header level training script for SRGAN."""
 
 # NOTE: https://docs.pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
 
@@ -55,6 +50,7 @@ def training_loop(
         learning_rate: rate of change updating model parameters per batch
         batch_size: number of samples per batch
         betas: coefficients for optimizer
+        epochs: number of runs through the dataloader
     """
 
     for w in generator.parameters():
@@ -150,7 +146,6 @@ def main():
         betas,
         epochs
     )
-
 
 
 if __name__ == "__main__":

@@ -15,3 +15,5 @@ data
 /data
 api
 /api
+src/gan_util.py
+/_archive
